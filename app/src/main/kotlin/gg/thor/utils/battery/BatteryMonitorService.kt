@@ -83,11 +83,21 @@ class BatteryMonitorService : LifecycleService() {
     }
 
     private suspend fun sampleLoop() {
-        val configured = settings.settings.first()
-        estimator = BatteryEstimator(capacityUah = resolveCapacityUah(configured.batteryCapacityUah))
+        var activeCapacity: Long? = null
 
         while (lifecycleScope.isActive) {
             val current = settings.settings.first()
+
+            // Capacity converts current into percent-per-hour, so changing it
+            // invalidates every accumulated average. Rebuild the estimator rather
+            // than letting old readings scaled against the old capacity contaminate
+            // the new ones.
+            val capacity = resolveCapacityUah(current.batteryCapacityUah)
+            if (capacity != activeCapacity) {
+                activeCapacity = capacity
+                estimator = BatteryEstimator(capacityUah = capacity)
+            }
+
             val sample = readSample()
             if (sample != null) {
                 val result = estimator.add(sample)
