@@ -103,6 +103,43 @@ class RomSorterTest {
     }
 
     @Test
+    fun `buffers a bounded amount per archive regardless of its size`() {
+        // Regression: identification used to buffer 5 MiB per entry with no cap on
+        // entry count, and retained it for every game in the plan. On a real
+        // library that exhausted Android's 256 MiB heap before the scan finished.
+        val zip = File(tmp, "roms/Big Set.zip")
+        zip.parentFile.mkdirs()
+        val payload = ByteArray(400_000).apply { put(0, 0x4E, 0x45, 0x53, 0x1A) }
+        ZipOutputStream(zip.outputStream()).use { out ->
+            repeat(80) { index ->
+                out.putNextEntry(ZipEntry("Game $index.nes"))
+                out.write(payload)
+                out.closeEntry()
+            }
+        }
+
+        val contents = ArchiveInspector.inspect(zip)!!
+        assertTrue(contents.isReadable)
+
+        val buffered = contents.entries.sumOf { it.header.size.toLong() }
+        val ceiling = ArchiveInspector.HEADER_BYTES.toLong() * 32
+        assertTrue(
+            buffered <= ceiling,
+            "buffered $buffered bytes from an 80-entry archive, ceiling is $ceiling",
+        )
+
+        // And once identified, nothing is held on to at all.
+        val id = RomIdentifier(tmp).identify(zip)
+        assertEquals("nes", id.systemId)
+        assertEquals(
+            0L,
+            id.archive!!.entries.sumOf { it.header.size.toLong() },
+            "headers must be released after identification",
+        )
+        assertTrue(id.archive!!.entries.isNotEmpty(), "entry names should survive")
+    }
+
+    @Test
     fun `falls back to the folder name for a CHD`() {
         // CHD headers do not name the console, so the folder has to arbitrate.
         val file = write("Backups/Sega Saturn/Panzer Dragoon.chd") { putAscii(0, "MComprHD") }

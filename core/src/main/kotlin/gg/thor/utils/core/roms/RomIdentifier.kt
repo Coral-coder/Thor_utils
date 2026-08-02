@@ -89,7 +89,10 @@ class RomIdentifier(
             systemId = resolved?.systemId,
             confidence = resolved?.confidence ?: Confidence.NONE,
             evidence = evidence.sortedByDescending { it.confidence.ordinal },
-            archive = archive,
+            // Release the buffered headers now that the verdict is in. A plan
+            // holds one identification per game, so retaining them would scale
+            // memory with library size rather than with archive size.
+            archive = archive?.withoutHeaders(),
             innerRom = innerRom,
             resolvedReason = resolved?.reason,
         )

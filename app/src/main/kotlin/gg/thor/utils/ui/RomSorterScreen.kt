@@ -143,7 +143,15 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
                                         copyInsteadOfMove = copyInstead,
                                         extractArchives = extractArchives,
                                     ),
-                                ).plan(File(source), File(romsRoot))
+                                ).plan(File(source), File(romsRoot)) { scanned, file ->
+                                    // Snapshot state is safe to write from a
+                                    // background thread. Throttled because a large
+                                    // library would otherwise recompose thousands
+                                    // of times a second for no benefit.
+                                    if (scanned % 50 == 0) {
+                                        status = "Scanning… $scanned files (${file.name})"
+                                    }
+                                }
                             }
                         }
                         busy = false

@@ -87,8 +87,12 @@ object SortExecutor {
 
     private fun extract(item: SortItem, destinationDir: File, options: SorterOptions): SortResult {
         val archive = item.primary
+        // Detect the container from its magic bytes rather than re-running a full
+        // inspection: extraction needs the format, not the buffered headers, and
+        // re-reading them would double the memory cost of applying a plan.
+        val kind = FileByteSource(archive).use { Signatures.archiveKind(it) }
         val written = try {
-            when (ArchiveInspector.inspect(archive)?.kind) {
+            when (kind) {
                 ArchiveKind.ZIP -> extractZip(archive, destinationDir)
                 ArchiveKind.SEVEN_Z -> extractSevenZ(archive, destinationDir)
                 ArchiveKind.RAR -> {
