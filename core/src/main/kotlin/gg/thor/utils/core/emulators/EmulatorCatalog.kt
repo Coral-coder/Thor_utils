@@ -179,6 +179,13 @@ object EmulatorCatalog {
             notes = "PS Vita. Compatibility is still patchy — check before committing a " +
                 "library to it.",
         ),
+        // -------------------------------------------------------- frontends
+        //
+        // Frontends are listed for the same reason emulators are: the launcher
+        // matches installed packages against this list so they can be sent to a
+        // chosen screen. Matching also falls back to the visible app name, so a
+        // frontend missing from here is still launchable — it just does not get
+        // a description.
         Emulator(
             name = "ES-DE",
             systems = emptyList(),
@@ -188,6 +195,30 @@ object EmulatorCatalog {
             notes = "The frontend this app's ROM sorter targets. Point it at the same " +
                 "ROMs root you sort into.",
             recommended = true,
+        ),
+        Emulator(
+            name = "Daijisho",
+            systems = emptyList(),
+            packageIds = listOf("com.magneticchen.daijishou"),
+            idConfidence = IdConfidence.LIKELY,
+            dualScreen = DualScreenSupport.NONE,
+            notes = "Popular Android-native frontend. Reads the same sorted ROMs root.",
+        ),
+        Emulator(
+            name = "Pegasus",
+            systems = emptyList(),
+            packageIds = listOf("org.pegasus_frontend.android"),
+            idConfidence = IdConfidence.LIKELY,
+            dualScreen = DualScreenSupport.NONE,
+            notes = "Highly customisable frontend, themeable to match the second screen.",
+        ),
+        Emulator(
+            name = "Beacon",
+            systems = emptyList(),
+            packageIds = listOf("com.beaconlauncher.app"),
+            idConfidence = IdConfidence.LIKELY,
+            dualScreen = DualScreenSupport.NONE,
+            notes = "Newer frontend with strong controller navigation.",
         ),
     )
 

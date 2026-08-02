@@ -151,6 +151,30 @@ class RomSorterTest {
     }
 
     @Test
+    fun `keeps a multi-disc playlist with every disc it references`() {
+        // The nesting is what makes this tricky: the .m3u names the .cue sheets,
+        // and each .cue names its own tracks. All of it has to move as one unit or
+        // the playlist the emulator actually loads points at missing files.
+        val m3u = File(tmp, "ff7/Final Fantasy VII.m3u")
+        m3u.parentFile.mkdirs()
+        m3u.writeText("Final Fantasy VII (Disc 1).cue\nFinal Fantasy VII (Disc 2).cue\n")
+
+        val discs = (1..2).map { disc ->
+            val cue = File(tmp, "ff7/Final Fantasy VII (Disc $disc).cue")
+            cue.writeText("FILE \"Final Fantasy VII (Disc $disc).bin\" BINARY\n  TRACK 01 MODE2/2352\n")
+            val bin = write("ff7/Final Fantasy VII (Disc $disc).bin")
+            listOf(cue, bin)
+        }.flatten()
+
+        val groups = RomSorter().groupSidecars(discs + m3u)
+
+        assertEquals(1, groups.size, "the playlist and both discs must stay together")
+        val group = groups.single()
+        assertEquals(5, group.size, "expected m3u + 2 cues + 2 bins, got ${group.map { it.name }}")
+        assertEquals(m3u, group.first(), "the playlist should lead the group")
+    }
+
+    @Test
     fun `recognises multi-disc titles`() {
         assertEquals(
             "Final Fantasy VII (USA)",

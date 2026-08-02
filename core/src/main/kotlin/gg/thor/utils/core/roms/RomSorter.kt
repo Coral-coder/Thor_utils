@@ -144,9 +144,15 @@ class RomSorter(private val options: SorterOptions = SorterOptions()) {
         val groups = mutableListOf<List<File>>()
 
         // Descriptors first, so their tracks are claimed before being seen alone.
+        //
+        // Playlists lead, because references nest: a .m3u names the .cue sheets of
+        // each disc, and each .cue names its own .bin tracks. Letting the cues go
+        // first would claim their tracks and leave the playlist holding nothing,
+        // so the whole multi-disc set would scatter and the .m3u — which is what
+        // the emulator actually loads — would end up unsorted.
         val descriptors = files.filter {
             RomIdentifier.extensionOf(it.name) in setOf("cue", "gdi", "m3u", "ccd", "toc")
-        }.sortedBy { RomIdentifier.extensionOf(it.name) == "m3u" }
+        }.sortedByDescending { RomIdentifier.extensionOf(it.name) == "m3u" }
 
         descriptors.forEach { descriptor ->
             if (descriptor !in remaining) return@forEach
