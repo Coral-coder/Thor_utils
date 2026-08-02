@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      A translucent, undecorated shell. The real styling is done in Compose so
+      the whole UI can be retinted from the user's chosen base colour at runtime;
+      this theme exists only so the window itself does not flash an opaque
+      background before the first frame.
+    -->
+    <style name="Theme.ThorUtils" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

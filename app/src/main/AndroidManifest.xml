@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Battery monitor keeps sampling while a game is in the foreground. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- The stats HUD draws over whatever is running on the bottom screen. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- ROM sorting walks a library the user points us at. MANAGE_EXTERNAL_STORAGE
+         is what makes bulk moves across the SD card and internal storage possible;
+         the Storage Access Framework cannot move thousands of files at speed. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <!-- The launcher lists installed emulators. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <application
+        android:name=".ThorApp"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.ThorUtils">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboardHidden|uiMode"
+            android:theme="@style/Theme.ThorUtils">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Battery projection service.
+
+          `specialUse` is the honest foreground-service type here: this is not a
+          media, location or data-sync workload, it is a continuous hardware
+          measurement whose whole point is to survive while a game runs.
+        -->
+        <service
+            android:name=".battery.BatteryMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Continuous battery drain measurement and runtime projection" />
+        </service>
+
+        <!-- Stats HUD on the second screen. -->
+        <service
+            android:name=".overlay.StatsOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Always-on hardware statistics overlay for the secondary display" />
+        </service>
+
+        <!--
+          Optional focus helper.
+
+          The overlay itself is non-focusable, which is what keeps touches from
+          stealing focus. This service exists only for the stricter case where the
+          user wants focus actively returned to a chosen display.
+        -->
+        <service
+            android:name=".overlay.FocusReturnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/focus_return_service" />
+        </service>
+
+        <receiver
+            android:name=".battery.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
