@@ -74,6 +74,7 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
     var status by remember { mutableStateOf<String?>(null) }
     var copyInstead by remember { mutableStateOf(false) }
     var extractArchives by remember { mutableStateOf(false) }
+    var deleteArchives by remember { mutableStateOf(false) }
 
     val hasStorageAccess = hasAllFilesAccess()
 
@@ -124,8 +125,15 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
             ToggleRow(
                 label = "Unpack archives",
                 checked = extractArchives,
-                description = "Extract zip/7z/rar into the system folder instead of filing the archive",
+                description = "Extract zip/7z/rar and file each game inside by its own system. " +
+                    "The archive itself stays where it is.",
             ) { extractArchives = it }
+            ToggleRow(
+                label = "Delete archive after unpacking",
+                checked = deleteArchives,
+                enabled = extractArchives,
+                description = "Only once its contents are safely filed. Off means nothing is destroyed.",
+            ) { deleteArchives = it }
         }
 
         SectionCard("Scan") {
@@ -142,6 +150,7 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
                                         dryRun = true,
                                         copyInsteadOfMove = copyInstead,
                                         extractArchives = extractArchives,
+                                        deleteArchiveAfterExtract = deleteArchives,
                                     ),
                                 ).plan(File(source), File(romsRoot)) { scanned, file ->
                                     // Snapshot state is safe to write from a
@@ -177,6 +186,7 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
                                         dryRun = false,
                                         copyInsteadOfMove = copyInstead,
                                         extractArchives = extractArchives,
+                                        deleteArchiveAfterExtract = deleteArchives,
                                     ),
                                 )
                             }
@@ -211,9 +221,17 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
 
             SectionCard("Every decision", subtitle = "Check these before applying") {
                 current.items.take(MAX_LISTED).forEach { item ->
+                    // An archive being unpacked can scatter across several system
+                    // folders, so showing one destination would misrepresent it.
+                    val systems = item.identification.archiveEntrySystems.values.toSet()
+                    val destination = when {
+                        item.action != SortAction.EXTRACT -> item.destination
+                        systems.size > 1 -> "unpack → ${systems.sorted().joinToString(", ")}"
+                        else -> "unpack → ${systems.firstOrNull() ?: item.destination}"
+                    }
                     PlanRow(
                         name = item.primary.name,
-                        destination = item.destination,
+                        destination = destination,
                         reason = item.note,
                         confidence = item.identification.confidence,
                         action = item.action,

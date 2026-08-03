@@ -22,6 +22,18 @@ data class RomIdentification(
      * its folder name says so here.
      */
     val resolvedReason: String? = null,
+    /**
+     * For archives: entry path -> ES-DE system id, for every entry that could be
+     * identified on its own.
+     *
+     * Recorded during identification because that is the only point at which the
+     * entry headers are still buffered. It is what lets a mixed archive — a
+     * backup holding NES and SNES folders, say — be unpacked into the right
+     * system folder per file instead of all landing wherever the archive as a
+     * whole was judged to belong. Only strings are kept, so this costs nothing
+     * to carry through the plan.
+     */
+    val archiveEntrySystems: Map<String, String> = emptyMap(),
 ) {
     val system: GameSystem? get() = systemId?.let { SystemCatalog.byId(it) }
     val isIdentified: Boolean get() = systemId != null
@@ -56,16 +68,24 @@ class RomIdentifier(
         val evidence = mutableListOf<Evidence>()
         var archive: ArchiveContents? = null
         var innerRom: String? = null
+        var entrySystems: Map<String, String> = emptyMap()
 
         val extension = extensionOf(file.name)
 
         if (extension in SystemCatalog.ARCHIVE_EXTENSIONS || looksLikeArchive(file)) {
             archive = ArchiveInspector.inspect(file)
             if (archive != null && archive.isReadable) {
-                val best = bestEntry(archive.entries)
+                val classified = classifyEntries(archive.entries)
+                entrySystems = classified.mapValues { (_, evidenceForEntry) -> evidenceForEntry.systemId }
+
+                val best = classified.entries
+                    .maxWithOrNull(
+                        compareBy<Map.Entry<String, Evidence>> { it.value.confidence.ordinal }
+                            .thenBy { entry -> archive.entries.firstOrNull { it.path == entry.key }?.size ?: 0L },
+                    )
                 if (best != null) {
-                    innerRom = best.first.path
-                    evidence += best.second
+                    innerRom = best.key
+                    evidence += best.value
                 }
             } else if (archive != null) {
                 evidence += Evidence(
@@ -95,6 +115,7 @@ class RomIdentifier(
             archive = archive?.withoutHeaders(),
             innerRom = innerRom,
             resolvedReason = resolved?.reason,
+            archiveEntrySystems = entrySystems,
         )
     }
 
@@ -141,14 +162,19 @@ class RomIdentifier(
     }
 
     /**
-     * Finds the most convincing ROM inside an archive.
+     * Identifies every entry in an archive independently.
      *
-     * Ties are broken by size: a `.zip` holding a ROM plus a readme should be
-     * judged on the ROM.
+     * Judging the archive by its single best entry is enough to decide where the
+     * archive itself belongs, but not enough to unpack one: a backup archive
+     * routinely holds more than one system, and extracting it wholesale into the
+     * folder its largest ROM happens to match would scatter the rest. Entries
+     * that name no system at all — readmes, artwork, disc tracks — are simply
+     * absent from the result, and the caller decides what to do with them.
      */
-    private fun bestEntry(entries: List<ArchiveEntry>): Pair<ArchiveEntry, Evidence>? {
-        val scored = entries.mapNotNull { entry ->
+    private fun classifyEntries(entries: List<ArchiveEntry>): Map<String, Evidence> =
+        entries.mapNotNull { entry ->
             val bySignature = Signatures.identify(entry.asByteSource())
+                ?.takeIf { it.systemId != Signatures.UNKNOWN_DISC }
                 ?.let { Evidence(it.systemId, it.confidence, "inside archive: ${entry.name} — ${it.reason}") }
             val byExtension = SystemCatalog.UNIQUE_EXTENSIONS[extensionOf(entry.name)]?.let { sys ->
                 Evidence(
@@ -158,13 +184,8 @@ class RomIdentifier(
             }
             val best = listOfNotNull(bySignature, byExtension)
                 .maxByOrNull { it.confidence.ordinal } ?: return@mapNotNull null
-            entry to best
-        }
-        return scored.maxWithOrNull(
-            compareBy<Pair<ArchiveEntry, Evidence>> { it.second.confidence.ordinal }
-                .thenBy { it.first.size },
-        )
-    }
+            entry.path to best
+        }.toMap()
 
     /** Looks for a system name in the folders between [scanRoot] and the file. */
     private fun folderHint(file: File): Evidence? {

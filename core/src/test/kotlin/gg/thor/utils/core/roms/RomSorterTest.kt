@@ -293,6 +293,117 @@ class RomSorterTest {
         )
     }
 
+    // ---------------------------------------------------------- unpacking
+
+    /** Builds a zip whose entries are given as name -> first-four-magic-bytes. */
+    private fun buildZip(path: String, entries: List<Pair<String, IntArray?>>): File {
+        val zip = File(tmp, path)
+        zip.parentFile.mkdirs()
+        ZipOutputStream(zip.outputStream()).use { out ->
+            entries.forEach { (name, magic) ->
+                out.putNextEntry(ZipEntry(name))
+                val payload = ByteArray(8192)
+                magic?.let { payload.put(0, *it) }
+                out.write(payload)
+                out.closeEntry()
+            }
+        }
+        return zip
+    }
+
+    private val nesMagic = intArrayOf(0x4E, 0x45, 0x53, 0x1A)
+    private val n64Magic = intArrayOf(0x80, 0x37, 0x12, 0x40)
+
+    @Test
+    fun `unpacking files each game into its own system folder`() {
+        // A mixed backup archive: NES and N64 games plus packaging junk.
+        buildZip(
+            "backup/Mixed Backup.zip",
+            listOf(
+                "roms/nes/Contra.nes" to nesMagic,
+                "roms/n64/Mario 64.z64" to n64Magic,
+                "readme.txt" to null,
+                "cover.jpg" to null,
+            ),
+        )
+
+        val roms = File(tmp, "ROMs")
+        val options = SorterOptions(dryRun = false, extractArchives = true)
+        val plan = RomSorter(options).plan(File(tmp, "backup"), roms)
+        val report = SortExecutor.execute(plan, options)
+
+        assertTrue(report.failed.isEmpty(), "unexpected failures: ${report.failed.map { it.error }}")
+
+        // Each game lands in the folder its own bytes call for, not the one the
+        // archive as a whole happened to match.
+        assertTrue(File(roms, "nes/Contra.nes").exists(), "NES game should be filed under nes/")
+        assertTrue(File(roms, "n64/Mario 64.z64").exists(), "N64 game should be filed under n64/")
+
+        // Packaging is not extracted at all.
+        assertFalse(File(roms, "nes/readme.txt").exists())
+        assertFalse(File(roms, "nes/cover.jpg").exists())
+        assertFalse(File(roms, "_unsorted/readme.txt").exists())
+    }
+
+    @Test
+    fun `unpacking flattens the archive's own folder structure`() {
+        buildZip("backup/Nested.zip", listOf("some/deep/path/Contra.nes" to nesMagic))
+
+        val roms = File(tmp, "ROMs")
+        val options = SorterOptions(dryRun = false, extractArchives = true)
+        SortExecutor.execute(RomSorter(options).plan(File(tmp, "backup"), roms), options)
+
+        assertTrue(File(roms, "nes/Contra.nes").exists(), "game should sit directly in the system folder")
+        assertFalse(File(roms, "nes/some").exists(), "the archive's folders must not be recreated")
+    }
+
+    @Test
+    fun `unpacking leaves the archive where it was`() {
+        val archive = buildZip("backup/Keep Me.zip", listOf("Contra.nes" to nesMagic))
+
+        val roms = File(tmp, "ROMs")
+        val options = SorterOptions(dryRun = false, extractArchives = true)
+        SortExecutor.execute(RomSorter(options).plan(File(tmp, "backup"), roms), options)
+
+        assertTrue(archive.exists(), "the archive must not be consumed")
+        assertFalse(File(roms, "nes/Keep Me.zip").exists(), "the archive must not be filed into the ROMs tree")
+        assertTrue(File(roms, "nes/Contra.nes").exists())
+    }
+
+    @Test
+    fun `unpacking the same archive twice does not duplicate games`() {
+        buildZip("backup/Again.zip", listOf("Contra.nes" to nesMagic))
+
+        val roms = File(tmp, "ROMs")
+        val options = SorterOptions(dryRun = false, extractArchives = true)
+        repeat(2) {
+            SortExecutor.execute(RomSorter(options).plan(File(tmp, "backup"), roms), options)
+        }
+
+        val filed = File(roms, "nes").listFiles()?.map { it.name }.orEmpty()
+        assertEquals(
+            listOf("Contra.nes"),
+            filed,
+            "a second unpack must not produce a suffixed duplicate",
+        )
+    }
+
+    @Test
+    fun `deletes the archive after unpacking only when asked`() {
+        val archive = buildZip("backup/Consume.zip", listOf("Contra.nes" to nesMagic))
+
+        val roms = File(tmp, "ROMs")
+        val options = SorterOptions(
+            dryRun = false,
+            extractArchives = true,
+            deleteArchiveAfterExtract = true,
+        )
+        SortExecutor.execute(RomSorter(options).plan(File(tmp, "backup"), roms), options)
+
+        assertTrue(File(roms, "nes/Contra.nes").exists())
+        assertFalse(archive.exists(), "opted in, so the archive should be gone")
+    }
+
     // ----------------------------------------------------------- safety
 
     @Test
