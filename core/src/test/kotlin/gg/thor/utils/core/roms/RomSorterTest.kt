@@ -51,6 +51,47 @@ class RomSorterTest {
     }
 
     @Test
+    fun `no ambiguous extension is ever claimed by a single system`() {
+        // The invariant that keeps non-games out of system folders. It used to be
+        // documentation only, which is how `.app` ended up filed as 3DS content.
+        SystemCatalog.AMBIGUOUS.forEach { extension ->
+            assertNull(
+                SystemCatalog.UNIQUE_EXTENSIONS[extension],
+                ".$extension is listed as ambiguous but is still claimed outright",
+            )
+        }
+    }
+
+    @Test
+    fun `everyday computer files are not filed as games`() {
+        // A downloads folder is the default scan source, so these are exactly the
+        // files the sorter will meet most often.
+        listOf("app", "exe", "com", "bat", "msi", "apk").forEach { extension ->
+            assertNull(
+                SystemCatalog.UNIQUE_EXTENSIONS[extension],
+                ".$extension must not resolve to a system on its name alone",
+            )
+        }
+    }
+
+    @Test
+    fun `a stray app file goes unsorted rather than to the 3DS folder`() {
+        val file = write("backup/Some Installer.app")
+        val id = RomIdentifier(tmp).identify(file)
+        assertNull(id.systemId, "expected no system, got ${id.systemId} via ${id.primaryReason}")
+    }
+
+    @Test
+    fun `a genuine 3DS app file is still recognised by its header`() {
+        // Dropping the extension claim must not cost us real 3DS content: the
+        // NCCH magic identifies it with certainty regardless of what it is called.
+        val file = write("backup/Real Title.app") { putAscii(0x100, "NCCH") }
+        val id = RomIdentifier(tmp).identify(file)
+        assertEquals("n3ds", id.systemId)
+        assertEquals(Confidence.CERTAIN, id.confidence)
+    }
+
+    @Test
     fun `resolves messy folder names to systems`() {
         assertEquals("genesis", SystemCatalog.matchName("Sega Genesis")?.id)
         assertEquals("genesis", SystemCatalog.matchName("megadrive")?.id)

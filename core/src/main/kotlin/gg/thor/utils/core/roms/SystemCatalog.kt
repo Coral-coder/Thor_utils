@@ -120,7 +120,11 @@ object SystemCatalog {
         ),
         GameSystem(
             id = "n3ds", name = "Nintendo 3DS", manufacturer = "Nintendo",
-            extensions = setOf("3ds", "3dsx", "cci", "cxi", "cia", "app"),
+            // `.app` is deliberately absent. It is a 3DS NCCH container but far
+            // more commonly something else entirely, and claiming it sent every
+            // stray .app in a backup to the 3DS folder. Genuine 3DS .app files
+            // are still caught with certainty by their NCCH magic at 0x100.
+            extensions = setOf("3ds", "3dsx", "cci", "cxi", "cia"),
             aliases = setOf("3ds", "nintendo3ds", "citra", "azahar", "lime3ds"),
             dualScreen = true,
         ),
@@ -369,7 +373,12 @@ object SystemCatalog {
         ),
         GameSystem(
             id = "dos", name = "MS-DOS", manufacturer = "Microsoft",
-            extensions = setOf("exe", "com", "bat", "conf"),
+            // Only the DOSBox archive format is claimed. ES-DE will also launch a
+            // bare .exe/.com/.bat, but treating those as DOS games meant every
+            // Windows installer sitting in a downloads folder was filed under
+            // dos/ — and a downloads folder is exactly what people point this at.
+            // A real DOS game is nearly always a .dosz or a zip these days.
+            extensions = setOf("dosz"),
             aliases = setOf("msdos", "pc-dos", "dosbox"),
         ),
         GameSystem(
@@ -432,11 +441,32 @@ object SystemCatalog {
     private val byId: Map<String, GameSystem> = systems.associateBy { it.id }
 
     /**
+     * Extensions that must never decide a system on their own.
+     *
+     * Two kinds live here. Some are shared by several consoles (`.bin`, `.iso`)
+     * and need header sniffing to tell apart. Others belong to a console *and*
+     * to ordinary computer files — `.app` is a 3DS container but usually is not,
+     * and `.exe`/`.com`/`.bat` are DOS games far less often than they are
+     * Windows programs. Filing those by extension misplaces non-games, which is
+     * worse than leaving them unsorted, so identification must come from the
+     * bytes instead.
+     */
+    val AMBIGUOUS: Set<String> = setOf(
+        "app", "exe", "com", "bat", "conf", "msi", "apk", "jar",
+        "bin", "iso", "img", "chd", "cue", "ccd", "mds", "mdf", "nrg", "rom",
+        "zip", "7z", "rar", "m3u", "pbp", "elf", "dsk", "cas", "tap", "wad",
+        "cso", "zso", "xex",
+    )
+
+    /**
      * Extension -> system, for extensions owned by exactly one system.
      *
-     * Built defensively: if two systems ever claim the same extension the entry
-     * is dropped here and must be resolved by content inspection instead. That
-     * keeps a careless catalog edit from silently misfiling a whole library.
+     * Built defensively on two counts. An extension claimed by more than one
+     * system is dropped and left to content inspection, so a careless catalog
+     * edit cannot silently misfile a library. An extension listed in [AMBIGUOUS]
+     * is dropped for the same reason even if only one system claims it — that
+     * list is the record of extensions known to appear on files that are not
+     * games at all, and it is enforced here rather than merely documented.
      */
     val UNIQUE_EXTENSIONS: Map<String, GameSystem> = buildMap {
         val claims = mutableMapOf<String, MutableList<GameSystem>>()
@@ -444,16 +474,10 @@ object SystemCatalog {
             sys.extensions.forEach { ext -> claims.getOrPut(ext) { mutableListOf() }.add(sys) }
         }
         claims.forEach { (ext, owners) ->
-            if (owners.size == 1) put(ext, owners.single())
+            if (owners.size == 1 && ext !in AMBIGUOUS) put(ext, owners.single())
         }
     }
 
-    /** Extensions that several systems legitimately use; need header sniffing. */
-    val AMBIGUOUS: Set<String> = setOf(
-        "bin", "iso", "img", "chd", "cue", "ccd", "mds", "mdf", "nrg", "rom",
-        "zip", "7z", "rar", "m3u", "pbp", "elf", "dsk", "cas", "tap", "wad",
-        "cso", "zso", "xex",
-    )
 
     /** Archive containers we can look inside. */
     val ARCHIVE_EXTENSIONS: Set<String> = setOf("zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "xz")
