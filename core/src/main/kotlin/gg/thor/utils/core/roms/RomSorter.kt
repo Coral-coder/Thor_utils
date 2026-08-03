@@ -11,8 +11,14 @@ enum class SortAction {
     EXTRACT,
     /** Already in the right place — nothing to do. */
     ALREADY_SORTED,
-    /** Could not be identified; goes to the unsorted tray for manual triage. */
-    UNSORTED,
+    /**
+     * Not provably a console game, so it is left exactly where it is.
+     *
+     * This is never an operation — the file is not moved, copied, renamed or
+     * opened again. Anything the sorter cannot prove is a game is none of its
+     * business.
+     */
+    LEAVE_ALONE,
 }
 
 /**
@@ -45,8 +51,19 @@ data class SortPlan(
     val bySystem: Map<String, List<SortItem>>
         get() = items.filter { it.systemId != null }.groupBy { it.systemId!! }
 
-    val unidentified: List<SortItem> get() = items.filter { it.action == SortAction.UNSORTED }
-    val actionable: List<SortItem> get() = items.filter { it.action != SortAction.ALREADY_SORTED }
+    /** Files the sorter deliberately will not touch. */
+    val untouched: List<SortItem> get() = items.filter { it.action == SortAction.LEAVE_ALONE }
+
+    /**
+     * The items that will actually be written.
+     *
+     * Both [SortAction.ALREADY_SORTED] and [SortAction.LEAVE_ALONE] are excluded,
+     * so a plan can only ever act on files proven to be console games.
+     */
+    val actionable: List<SortItem>
+        get() = items.filter {
+            it.action != SortAction.ALREADY_SORTED && it.action != SortAction.LEAVE_ALONE
+        }
     val totalBytes: Long get() = actionable.sumOf { it.totalBytes }
 }
 
@@ -61,11 +78,9 @@ data class SorterOptions(
     val deleteArchiveAfterExtract: Boolean = false,
     /** Put multi-disc games in their own subfolder, which ES-DE collapses nicely. */
     val groupMultiDisc: Boolean = true,
-    /** Folder (under the ROMs root) for files that could not be identified. */
-    val unsortedFolder: String = "_unsorted",
     /**
-     * Minimum confidence required to file a game. Anything weaker lands in the
-     * unsorted tray rather than being guessed into the wrong console's folder.
+     * Minimum confidence required to file a game. Anything weaker is left where
+     * it is rather than guessed into a console's folder.
      */
     val minimumConfidence: Confidence = Confidence.MEDIUM,
 )
@@ -90,6 +105,20 @@ class RomSorter(private val options: SorterOptions = SorterOptions()) {
     private val ignoredNames = setOf("thumbs.db", ".ds_store", "desktop.ini")
 
     /**
+     * Extensions the sorter refuses to look at, let alone move.
+     *
+     * App packages are ZIP files, so without this an APK would be opened as an
+     * archive and could be identified from some asset buried inside it. These
+     * are never games, so the safest handling is to not consider them at all.
+     */
+    private val neverTouchExtensions = setOf(
+        "apk", "apks", "xapk", "apkm", "aab", "obb", "msi", "exe", "dll", "so",
+        "jar", "deb", "rpm", "dmg", "pkg", "appimage",
+        "mp3", "mp4", "mkv", "avi", "mov", "wav", "flac", "m4a", "webm",
+        "doc", "docx", "xls", "xlsx", "ppt", "pptx", "epub", "mobi", "torrent",
+    )
+
+    /**
      * Walks [source] and decides where everything should go under [romsRoot].
      *
      * @param onProgress called with (filesScanned, currentFile) so a UI can show
@@ -106,7 +135,6 @@ class RomSorter(private val options: SorterOptions = SorterOptions()) {
 
         var scanned = 0
         source.walkTopDown()
-            .onEnter { dir -> dir.name != options.unsortedFolder }
             .filter { it.isFile }
             .forEach { file ->
                 scanned++
@@ -126,6 +154,7 @@ class RomSorter(private val options: SorterOptions = SorterOptions()) {
         if (name in ignoredNames) return "system file"
         if (name.startsWith("._")) return "macOS resource fork"
         val ext = RomIdentifier.extensionOf(file.name)
+        if (ext in neverTouchExtensions) return "never touched (.$ext)"
         // Sidecars are only ignored when standalone; grouping runs before this
         // decision matters, so `.bin` and `.img` are deliberately absent here.
         if (ext in ignoredExtensions) return "not a ROM (.$ext)"
@@ -208,16 +237,17 @@ class RomSorter(private val options: SorterOptions = SorterOptions()) {
 
         if (id.systemId == null || id.confidence < options.minimumConfidence) {
             val why = if (id.systemId == null) {
-                "could not identify"
+                "not provably a console game"
             } else {
                 "confidence ${id.confidence} below required ${options.minimumConfidence}"
             }
             return SortItem(
                 identification = id,
                 files = ordered,
-                action = SortAction.UNSORTED,
-                destination = options.unsortedFolder,
-                note = "$why — ${id.primaryReason}",
+                action = SortAction.LEAVE_ALONE,
+                // Deliberately empty: there is no destination because nothing moves.
+                destination = "",
+                note = "left alone — $why",
             )
         }
 

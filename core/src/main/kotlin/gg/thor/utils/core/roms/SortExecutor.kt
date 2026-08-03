@@ -35,6 +35,11 @@ object SortExecutor {
     fun execute(
         plan: SortPlan,
         options: SorterOptions,
+        /**
+         * Records every move so the run can be reversed. Strongly recommended:
+         * without it a sort is irreversible.
+         */
+        journal: SortJournal? = null,
         onProgress: (done: Int, total: Int, item: SortItem) -> Unit = { _, _, _ -> },
     ): SortReport {
         val work = plan.actionable
@@ -46,7 +51,7 @@ object SortExecutor {
                 if (options.dryRun) {
                     SortResult(item, true, item.files.map { "${item.destination}/${it.name}" })
                 } else {
-                    apply(item, plan.romsRoot, options)
+                    apply(item, plan.romsRoot, options, journal)
                 }
             } catch (e: Exception) {
                 SortResult(item, false, error = e.message ?: e.javaClass.simpleName)
@@ -56,14 +61,19 @@ object SortExecutor {
         return SortReport(results, options.dryRun)
     }
 
-    private fun apply(item: SortItem, romsRoot: File, options: SorterOptions): SortResult {
+    private fun apply(
+        item: SortItem,
+        romsRoot: File,
+        options: SorterOptions,
+        journal: SortJournal?,
+    ): SortResult {
         val destinationDir = File(romsRoot, item.destination)
         if (!destinationDir.exists() && !destinationDir.mkdirs()) {
             return SortResult(item, false, error = "could not create ${destinationDir.absolutePath}")
         }
 
         if (item.action == SortAction.EXTRACT) {
-            return extract(item, romsRoot, options)
+            return extract(item, romsRoot, options, journal)
         }
 
         val written = mutableListOf<String>()
@@ -78,7 +88,12 @@ object SortExecutor {
             }
             when (item.action) {
                 SortAction.COPY -> file.copyTo(target, overwrite = false)
-                else -> moveFile(file, target)
+                else -> {
+                    moveFile(file, target)
+                    // Recorded per file, the moment it lands, so an interrupted
+                    // run is still fully reversible.
+                    journal?.record(file, target)
+                }
             }
             written += target.relativeToRootOrSelf(romsRoot)
         }
@@ -95,7 +110,12 @@ object SortExecutor {
      * result rather than a pile in whichever folder the archive as a whole
      * matched.
      */
-    private fun extract(item: SortItem, romsRoot: File, options: SorterOptions): SortResult {
+    private fun extract(
+        item: SortItem,
+        romsRoot: File,
+        options: SorterOptions,
+        journal: SortJournal?,
+    ): SortResult {
         val archive = item.primary
         // Detect the container from its magic bytes rather than re-running a full
         // inspection: extraction needs the format, not the buffered headers, and
@@ -156,6 +176,10 @@ object SortExecutor {
             val extension = RomIdentifier.extensionOf(fileName)
             if (extension in junkExtensions) return null
 
+            // Only entries proven to be console games are written out. An entry
+            // that could not be identified is not extracted at all — it stays
+            // inside the archive, where it does no harm. Writing it somewhere
+            // "for later" is what turns unpacking into vandalism.
             val system = item.identification.archiveEntrySystems[entryName]
                 ?: item.identification.archiveEntrySystems[fileName]
                 ?: when {
@@ -164,7 +188,7 @@ object SortExecutor {
                     extension in sidecarExtensions -> item.systemId
                     else -> null
                 }
-                ?: options.unsortedFolder
+                ?: return null
 
             val directory = File(romsRoot, system)
             if (!directory.exists() && !directory.mkdirs()) return null

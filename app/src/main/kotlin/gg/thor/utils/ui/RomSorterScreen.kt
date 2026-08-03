@@ -43,6 +43,7 @@ import gg.thor.utils.core.roms.SortAction
 import gg.thor.utils.core.roms.SortPlan
 import gg.thor.utils.core.roms.SortReport
 import gg.thor.utils.core.roms.SortExecutor
+import gg.thor.utils.core.roms.SortJournal
 import gg.thor.utils.core.roms.SorterOptions
 import gg.thor.utils.core.stats.Format
 import gg.thor.utils.data.SettingsRepository
@@ -75,6 +76,11 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
     var copyInstead by remember { mutableStateOf(false) }
     var extractArchives by remember { mutableStateOf(false) }
     var deleteArchives by remember { mutableStateOf(false) }
+
+    // Kept in the app's own storage so it survives even if the ROMs tree is
+    // rearranged by hand afterwards.
+    val journal = remember { SortJournal(File(context.filesDir, "last-sort.log")) }
+    var undoable by remember { mutableStateOf(journal.entries().isNotEmpty()) }
 
     val hasStorageAccess = hasAllFilesAccess()
 
@@ -188,9 +194,11 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
                                         extractArchives = extractArchives,
                                         deleteArchiveAfterExtract = deleteArchives,
                                     ),
+                                    journal = journal,
                                 )
                             }
                             busy = false
+                            undoable = journal.entries().isNotEmpty()
                             report = result
                             status = "Filed ${result.moved.size} games" +
                                 if (result.failed.isEmpty()) "." else ", ${result.failed.size} failed."
@@ -198,6 +206,31 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
                         }
                     }
                 }
+                if (undoable) {
+                    ActionButton("Undo last sort", enabled = !busy) {
+                        scope.launch {
+                            busy = true
+                            status = "Putting files back…"
+                            val undo = withContext(Dispatchers.IO) { journal.undo() }
+                            busy = false
+                            undoable = journal.entries().isNotEmpty()
+                            status = buildString {
+                                append("Put ${undo.restored} files back")
+                                if (undo.missing > 0) append(", ${undo.missing} already gone")
+                                if (undo.failed.isNotEmpty()) {
+                                    append(", ${undo.failed.size} could not be returned")
+                                }
+                                append(".")
+                            }
+                            plan = null
+                            report = null
+                        }
+                    }
+                }
+            }
+            if (undoable) {
+                Box(Modifier.height(8.dp))
+                Hint("The last run can be undone until you start another one.")
             }
             status?.let {
                 Box(Modifier.height(8.dp))
@@ -208,14 +241,15 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
         plan?.let { current ->
             SectionCard(
                 title = "Plan",
-                subtitle = "${current.actionable.size} to file · ${Format.bytes(current.totalBytes)}",
+                subtitle = "${current.actionable.size} to file · ${Format.bytes(current.totalBytes)} · " +
+                    "${current.untouched.size} left untouched",
             ) {
                 current.bySystem.entries.sortedBy { it.key }.forEach { (system, items) ->
                     StatRow(system, "${items.size}")
                 }
-                if (current.unidentified.isNotEmpty()) {
+                if (current.untouched.isNotEmpty()) {
                     Box(Modifier.height(6.dp))
-                    StatRow("unsorted", "${current.unidentified.size}")
+                    StatRow("left alone", "${current.untouched.size}")
                 }
             }
 
@@ -231,7 +265,7 @@ fun RomSorterScreen(settings: ThorSettings, repository: SettingsRepository) {
                     }
                     PlanRow(
                         name = item.primary.name,
-                        destination = destination,
+                        destination = if (item.action == SortAction.LEAVE_ALONE) "not touched" else destination,
                         reason = item.note,
                         confidence = item.identification.confidence,
                         action = item.action,
@@ -270,7 +304,7 @@ private fun PlanRow(
 ) {
     val colors = LocalGlassColors.current
     val tint = when {
-        action == SortAction.UNSORTED -> colors.warn
+        action == SortAction.LEAVE_ALONE -> colors.textSecondary
         confidence >= Confidence.STRONG -> colors.good
         else -> colors.textSecondary
     }

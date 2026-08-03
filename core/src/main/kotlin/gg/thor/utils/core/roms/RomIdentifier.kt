@@ -3,7 +3,21 @@ package gg.thor.utils.core.roms
 import java.io.File
 
 /** A single piece of evidence for (or against) a system assignment. */
-data class Evidence(val systemId: String, val confidence: Confidence, val reason: String)
+data class Evidence(
+    val systemId: String,
+    val confidence: Confidence,
+    val reason: String,
+    /**
+     * Whether this evidence *proves the file is a console game*, as opposed to
+     * merely suggesting which console it would belong to if it were one.
+     *
+     * Only the file's own bytes and console-exclusive extensions are proof. A
+     * folder called `PS1` or a `[SNES]` tag in a filename says nothing about
+     * whether the file is a game — an APK sitting in such a folder is still an
+     * APK. Nothing is ever moved without at least one positive identification.
+     */
+    val positive: Boolean = false,
+)
 
 /** The verdict for one candidate ROM file. */
 data class RomIdentification(
@@ -98,12 +112,16 @@ class RomIdentifier(
         }
 
         SystemCatalog.UNIQUE_EXTENSIONS[extension]?.let { sys ->
-            evidence += Evidence(sys.id, Confidence.MEDIUM, "extension .$extension is unique to ${sys.name}")
+            evidence += Evidence(
+                sys.id, Confidence.MEDIUM,
+                "extension .$extension is used only by ${sys.name}",
+                positive = true,
+            )
         }
         folderHint(file)?.let { evidence += it }
         filenameHint(file.name)?.let { evidence += it }
 
-        val resolved = resolve(evidence)
+        val resolved = resolve(evidence, extension)
         return RomIdentification(
             file = file,
             systemId = resolved?.systemId,
@@ -120,28 +138,35 @@ class RomIdentifier(
     }
 
     /**
-     * Picks a winner from the collected evidence.
+     * Picks a winner from the collected evidence, or returns null.
      *
-     * The one subtlety is [Signatures.UNKNOWN_DISC]: the bytes proved the file is
-     * a disc image but not which console's. That verdict cannot stand on its own,
-     * so it is traded for the best name-based hint available.
+     * The governing rule: **a file is never identified unless something proved it
+     * is a console game.** Folder and filename hints can only say *which* console
+     * a game belongs to; they can never establish that a file is a game at all.
+     * Without that rule an APK, an installer or a document sitting in a folder
+     * named `PS1` gets treated as a PlayStation game, which is how a downloads
+     * folder ends up being rearranged.
      */
-    private fun resolve(evidence: List<Evidence>): Evidence? {
+    private fun resolve(evidence: List<Evidence>, extension: String): Evidence? {
         val usable = evidence.filter { it.systemId.isNotEmpty() && it.confidence != Confidence.NONE }
         if (usable.isEmpty()) return null
+        if (usable.none { it.positive }) return null
 
-        // A disc image whose header does not name its console can only ever be
-        // placed by a name hint. If nothing named a system, say so rather than
-        // inventing one.
         val sawAnonymousDisc = usable.any { it.systemId == Signatures.UNKNOWN_DISC }
         val best = usable.filter { it.systemId != Signatures.UNKNOWN_DISC }
-            .maxByOrNull { it.confidence.ordinal } ?: return null
+            .maxByOrNull { it.confidence.ordinal }
 
         if (!sawAnonymousDisc) return best
+
+        // The bytes proved this is *a* disc image but not whose. That is only
+        // enough to act on when the extension is itself console-specific: a .chd
+        // or .gdi is always a console dump, whereas a bare .iso or .bin is just
+        // as likely to be an operating system image or a disk backup. Without
+        // that, an unlabelled ISO in a folder called "PS2" would be moved.
+        if (extension !in CONSOLE_DISC_EXTENSIONS) return null
+        if (best == null) return null
+
         return best.copy(
-            // Placing a disc by its folder name is a guess, however good — cap it
-            // at medium and record how the decision was reached so the plan can
-            // be audited before anything moves.
             confidence = minOf(best.confidence, Confidence.MEDIUM),
             reason = "${best.reason} (disc image, console not in header)",
         )
@@ -155,7 +180,7 @@ class RomIdentifier(
 
     private fun fileSignature(file: File): Evidence? = try {
         FileByteSource(file).use { src ->
-            Signatures.identify(src)?.let { Evidence(it.systemId, it.confidence, it.reason) }
+            Signatures.identify(src)?.let { Evidence(it.systemId, it.confidence, it.reason, positive = true) }
         }
     } catch (_: Exception) {
         null
@@ -175,11 +200,18 @@ class RomIdentifier(
         entries.mapNotNull { entry ->
             val bySignature = Signatures.identify(entry.asByteSource())
                 ?.takeIf { it.systemId != Signatures.UNKNOWN_DISC }
-                ?.let { Evidence(it.systemId, it.confidence, "inside archive: ${entry.name} — ${it.reason}") }
+                ?.let {
+                    Evidence(
+                        it.systemId, it.confidence,
+                        "inside archive: ${entry.name} — ${it.reason}",
+                        positive = true,
+                    )
+                }
             val byExtension = SystemCatalog.UNIQUE_EXTENSIONS[extensionOf(entry.name)]?.let { sys ->
                 Evidence(
                     sys.id, Confidence.MEDIUM,
                     "inside archive: ${entry.name} has ${sys.name} extension",
+                    positive = true,
                 )
             }
             val best = listOfNotNull(bySignature, byExtension)
@@ -214,6 +246,18 @@ class RomIdentifier(
 
     companion object {
         private val TAG_PATTERN = Regex("""[\[(]([^\[\]()]{2,24})[])]""")
+
+        /**
+         * Disc-image extensions that only ever hold console dumps.
+         *
+         * A disc signature plus one of these is proof of a game. `.iso`, `.img`
+         * and `.bin` are deliberately excluded — they are used just as often for
+         * operating system images, disk backups and firmware.
+         */
+        private val CONSOLE_DISC_EXTENSIONS = setOf(
+            "chd", "gdi", "cdi", "pbp", "cso", "zso", "nrg", "mdf", "gcm", "wbfs",
+            "rvz", "wia", "gcz", "cue",
+        )
 
         /**
          * Lowercase extension without the dot.

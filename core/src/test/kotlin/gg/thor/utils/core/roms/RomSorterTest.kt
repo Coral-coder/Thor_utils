@@ -285,12 +285,80 @@ class RomSorterTest {
     }
 
     @Test
-    fun `unidentifiable files go to the unsorted tray, not a guessed folder`() {
+    fun `unidentifiable files are left exactly where they are`() {
         write("backup/mystery.bin")
         val plan = RomSorter().plan(File(tmp, "backup"), File(tmp, "ROMs"))
         val item = plan.items.single()
-        assertEquals(SortAction.UNSORTED, item.action)
-        assertEquals("_unsorted", item.destination)
+        assertEquals(SortAction.LEAVE_ALONE, item.action)
+        assertTrue(plan.actionable.isEmpty(), "an unidentified file must produce no work")
+    }
+
+    @Test
+    fun `a downloads folder of ordinary files is not touched at all`() {
+        // The failure this exists to prevent: a scan of Downloads relocating
+        // apps, archives and documents into the ROMs tree.
+        val downloads = File(tmp, "Download")
+        val names = listOf(
+            "MyApp.apk", "installer.exe", "song.mp3", "movie.mkv",
+            "notes.txt", "photo.jpg", "spreadsheet.xlsx", "book.epub",
+            "SomeArchive.zip", "unknown.bin", "Backup.iso",
+        )
+        names.forEach { write("Download/$it") }
+        // A zip whose contents are not games either.
+        val zip = File(downloads, "Documents.zip")
+        ZipOutputStream(zip.outputStream()).use { out ->
+            out.putNextEntry(ZipEntry("report.docx"))
+            out.write(ByteArray(4096))
+            out.closeEntry()
+        }
+
+        val roms = File(tmp, "ROMs")
+        val options = SorterOptions(dryRun = false, extractArchives = true)
+        val plan = RomSorter(options).plan(downloads, roms)
+
+        assertTrue(
+            plan.actionable.isEmpty(),
+            "nothing here is a game, but the plan wanted to act on " +
+                plan.actionable.map { it.primary.name },
+        )
+
+        SortExecutor.execute(plan, options)
+
+        // Every original file is still in Downloads, and the ROMs tree is untouched.
+        names.forEach { name ->
+            assertTrue(File(downloads, name).exists(), "$name was moved out of Downloads")
+        }
+        assertTrue(zip.exists(), "the archive was consumed")
+        assertFalse(roms.exists(), "no ROMs folders should have been created at all")
+    }
+
+    @Test
+    fun `a folder name alone never makes something a game`() {
+        // An APK-shaped file in a folder called PS1 is still not a PS1 game.
+        write("backup/PS1/random-download.dat")
+        write("backup/PS1/notes-about-ps1")
+        val plan = RomSorter().plan(File(tmp, "backup"), File(tmp, "ROMs"))
+        assertTrue(
+            plan.actionable.isEmpty(),
+            "folder context must not promote non-games: ${plan.actionable.map { it.primary.name }}",
+        )
+    }
+
+    @Test
+    fun `an unlabelled ISO is not assumed to be a console game`() {
+        // Could just as easily be a Linux installer or a disk backup.
+        write("backup/PS2/ubuntu.iso", size = 0x9000) { putAscii(0x8001, "CD001") }
+        val plan = RomSorter().plan(File(tmp, "backup"), File(tmp, "ROMs"))
+        assertTrue(plan.actionable.isEmpty(), "a bare ISO must not be moved on a folder hint")
+    }
+
+    @Test
+    fun `a CHD in a console folder is still sorted`() {
+        // The counterpart to the rule above: .chd only ever holds a console dump,
+        // so folder context is allowed to name the system.
+        write("backup/Sega Saturn/Panzer Dragoon.chd") { putAscii(0, "MComprHD") }
+        val plan = RomSorter().plan(File(tmp, "backup"), File(tmp, "ROMs"))
+        assertEquals("saturn", plan.actionable.single().systemId)
     }
 
     @Test
