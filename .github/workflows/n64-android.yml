@@ -18,7 +18,7 @@ on:
         required: false
         default: "plume"
         type: choice
-        options: [plume, rt64, all]
+        options: [plume, sdl2, rt64, all]
 
 jobs:
   graphics-stack:

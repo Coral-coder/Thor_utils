@@ -14,7 +14,7 @@
 #            `static_assert(false && "Android unimplemented")`, so this stage
 #            needs our own implementation before it can compile.
 #
-# Usage:  n64/build-android.sh [stage]      (stage: plume | rt64 | all)
+# Usage:  n64/build-android.sh [stage]      (stage: plume | sdl2 | rt64 | all)
 set -euo pipefail
 
 STAGE="${1:-plume}"
@@ -84,7 +84,26 @@ build_plume() {
         -DPLUME_BUILD_EXAMPLES=OFF
 }
 
+# RT64 needs SDL2. On desktop it comes from the system; on Android it has to be
+# built from source, and it is also what supplies the ANativeWindow our patched
+# window layer hands to plume.
+build_sdl2() {
+    fetch sdl2 https://github.com/libsdl-org/SDL.git "${SDL2_REF:-release-2.30.9}"
+    local build="$WORK/build-sdl2-$ABI"
+    cmake -S "$WORK/sdl2" -B "$build" -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+        -DANDROID_ABI="$ABI" \
+        -DANDROID_PLATFORM="android-$API" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$WORK/sdl2-install" \
+        -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF
+    cmake --build "$build" --parallel "$(nproc)"
+    cmake --install "$build"
+    echo "== SDL2 installed to $WORK/sdl2-install"
+}
+
 build_rt64() {
+    build_sdl2
     fetch rt64 https://github.com/rt64/rt64.git "${RT64_REF:-main}"
     # RT64's Android window path is unimplemented upstream. Apply ours before
     # configuring, so the failure mode is a clear patch error rather than a
@@ -98,12 +117,15 @@ build_rt64() {
                 || echo "   (already applied or does not match; continuing)"
         done
     fi
-    configure_and_build rt64 "$WORK/rt64"
+    configure_and_build rt64 "$WORK/rt64" \
+        -DSDL2_DIR="$WORK/sdl2-install/lib/cmake/SDL2" \
+        -DCMAKE_PREFIX_PATH="$WORK/sdl2-install"
 }
 
 case "$STAGE" in
     plume) build_plume ;;
+    sdl2)  build_sdl2 ;;
     rt64)  build_plume; build_rt64 ;;
     all)   build_plume; build_rt64 ;;
-    *) echo "unknown stage: $STAGE (expected plume | rt64 | all)" >&2; exit 2 ;;
+    *) echo "unknown stage: $STAGE (expected plume | sdl2 | rt64 | all)" >&2; exit 2 ;;
 esac
