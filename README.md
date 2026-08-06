@@ -4,9 +4,9 @@ A utility suite for the [AYN Thor](https://www.ayntec.com/products/ayn-thor) dua
 Android handheld: battery runtime projection, a second-screen stats HUD, a
 per-display app launcher, and an automatic ROM sorter for ES-DE.
 
-> **Status:** the core engine is complete and tested; the Android layer builds
-> and installs. Nothing here has been run on a physical Thor yet — see
-> [What has and has not been verified](#what-has-and-has-not-been-verified).
+> **Status:** running on a physical AYN Thor. The core engine is complete and
+> tested; see [What has and has not been verified](#what-has-and-has-not-been-verified)
+> for what is covered by tests versus what has only been compiled.
 
 ## Install
 
@@ -103,14 +103,30 @@ Content beats names, because names in a real backup are wrong often enough to
 matter. Archives are opened and judged on what is inside them, not on the
 archive's name.
 
-Formats that genuinely cannot name their console say so. A CHD header records
-"compressed disc" and nothing else; claiming a system from that would misfile
-every Saturn, Dreamcast and PC Engine CD set in a library. Those fall back to
-folder context, and anything still ambiguous goes to `_unsorted` rather than
-being guessed into the wrong console's folder.
+**A file is only ever moved if something proved it is a console game.** Only
+the bytes and console-exclusive extensions count as proof. A folder called
+`PS1` can say *which* console a game belongs to, but it can never establish
+that a file is a game — otherwise an APK sitting in that folder gets treated as
+a PlayStation title. Anything unproven is left exactly where it is: not moved,
+not copied, not renamed.
+
+Formats that cannot name their console are handled the same way. A CHD header
+records "compressed disc" and nothing else, so folder context names the system
+— but only because a `.chd` is always a console dump. A bare `.iso` or `.bin`
+gets no such treatment, since it is as likely to be an OS image or a disk
+backup.
+
+App packages, installers, media and documents are refused before identification
+even runs. An APK is a ZIP, so without that it would be opened as an archive
+and could be identified from some asset buried inside it.
 
 Safety, because a library takes years to assemble and seconds to shred:
 
+- **Nothing unproven is touched.** Files that are not demonstrably console
+  games produce no work at all.
+- **Every move is journalled and reversible.** There is an *Undo last sort*
+  button, and the record is written as each file lands, so even an interrupted
+  run can be put back.
 - **Plan first, apply second.** Every decision is listed with its reason before
   a byte moves.
 - **Dry run by default.**
@@ -120,14 +136,18 @@ Safety, because a library takes years to assemble and seconds to shred:
   produces a library that looks sorted and does not boot.
 - **Archive entries cannot escape the destination** (Zip Slip).
 - **Cross-filesystem moves are verified** before the original is removed.
-- **Re-running is idempotent** — files already in the right place are left
-  alone.
+- **Re-running is idempotent** — a file already filed at the same size is
+  recognised rather than duplicated with a ` (2)` suffix.
 
 ### 5. Dual-screen emulator guide
 
 Built into the app and written up in
 **[docs/dual-screen-emulators.md](docs/dual-screen-emulators.md)**. Installed
 emulators are marked, so the list works as a checklist rather than an article.
+
+See also **[docs/n64-recompilation.md](docs/n64-recompilation.md)** for why
+N64Recomp-based native ports cannot run on Android yet, and what would have to
+change.
 
 ## Appearance
 
@@ -156,7 +176,7 @@ CI runs the core tests first, without an SDK, then assembles both APKs.
 
 Being straight about this, because it affects how much you should trust it:
 
-**Verified** — 51 unit tests covering signature detection against synthetic ROM
+**Verified** — 71 unit tests covering signature detection against synthetic ROM
 headers built to the real hardware offsets, sort planning and execution against
 a temporary filesystem, collision and path-traversal handling, idempotent
 re-runs, the battery estimator's projection maths and sign-convention learning,

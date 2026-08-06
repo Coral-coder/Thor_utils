@@ -158,6 +158,17 @@ object EmulatorCatalog {
                 "needed for high internal resolutions.",
         ),
         Emulator(
+            name = "Mupen64Plus FZ",
+            systems = listOf("n64"),
+            packageIds = listOf("org.mupen64plusae.v3.fzurita", "org.mupen64plusae.v3.fzurita.pro"),
+            idConfidence = IdConfidence.LIKELY,
+            dualScreen = DualScreenSupport.NONE,
+            notes = "The standalone N64 choice on Android and the practical way to play " +
+                "an N64 cartridge dump on the Thor today. Use the GLideN64 video plugin; " +
+                "the 8 Gen 2 handles the library comfortably.",
+            recommended = true,
+        ),
+        Emulator(
             name = "RetroArch",
             systems = listOf(
                 "nes", "snes", "genesis", "gb", "gbc", "gba", "n64", "pcengine",
