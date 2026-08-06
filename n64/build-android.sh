@@ -45,7 +45,11 @@ echo "Target:    $ABI / android-$API"
 # Upstream moves fast and an unpinned clone makes failures impossible to
 # attribute between our changes and theirs.
 fetch() {
-    local name="$1" url="$2" ref="$3" dir="$WORK/$name"
+    # Split across statements on purpose: referencing "$name" inside the same
+    # `local` declaration that defines it is unset at expansion time under
+    # `set -u`, which fails the script before anything is fetched.
+    local name="$1" url="$2" ref="$3"
+    local dir="$WORK/$name"
     if [[ -d "$dir/.git" ]]; then
         echo "== $name already present"
     else
@@ -72,7 +76,8 @@ configure_and_build() {
     echo "== building $name"
     cmake --build "$build" --parallel "$(nproc)"
     echo "== $name OK"
-    find "$build" -name '*.a' -o -name '*.so' | head -20
+    # Informational only — must never fail a build that already succeeded.
+    find "$build" \( -name '*.a' -o -name '*.so' \) 2>/dev/null | head -20 || true
 }
 
 # --- stages ---------------------------------------------------------------
