@@ -82,10 +82,10 @@ substantial but conventional Android work.
 
 ## Honest risks
 
-- **Mobile GPU drivers.** RT64 leans on desktop Vulkan behaviour. Adreno's
-  driver is stricter in some places and looser in others, and this is where
-  ports of this kind usually stall. Cannot be assessed without running on the
-  device.
+- **Mobile GPU drivers.** RT64 leans on desktop Vulkan behaviour, and
+  Qualcomm's Android blob is the weakest link — it lags on extensions and has
+  its own quirks. **Largely mitigated:** see Turnip below. What remains is that
+  the mitigation itself is unproven on this device.
 - **Shader pipeline.** RT64 compiles HLSL with DXC to SPIR-V. That is a host
   build-time step, so it should be fine, but the ray-tracing and
   descriptor-indexing extensions it requests may not all be available on
@@ -95,6 +95,42 @@ substantial but conventional Android work.
   dependency.
 - **This may not finish.** Steps 1–3 are tractable. Step 5 depends on how much
   desktop assumption is baked into the recomp project's shell.
+
+## Turnip: replacing Qualcomm's driver
+
+The biggest risk in this port was always the Adreno driver. It is also the one
+with the best available answer.
+
+[Mesa's Turnip](https://docs.mesa3d.org/drivers/freedreno.html) is an
+open-source Vulkan driver for Adreno that is considerably more conformant than
+Qualcomm's, and [libadrenotools](https://github.com/bylaws/libadrenotools) can
+load it for a single application **without root**. This is the same mechanism
+emulators like NetherSX2 and Citron use, and it is well proven on handhelds.
+
+The integration point turned out to be clean. plume loads Vulkan through
+[volk](https://github.com/zeux/volk), which offers `volkInitializeCustom` —
+give it a `vkGetInstanceProcAddr` and every entry point it subsequently
+resolves comes from that driver instead of the system one.
+
+So the wiring is:
+
+1. `n64/patches/plume-01-custom-vulkan-loader.patch` adds
+   `plume::setCustomVulkanLoader()`. plume gains no dependency on adrenotools;
+   it only learns to accept a loader from whoever has one.
+2. `n64/android/turnip_loader.cpp` does the Android-specific part —
+   `adrenotools_open_libvulkan()`, `dlsym("vkGetInstanceProcAddr")`, hand it to
+   plume.
+3. Failure is never fatal. A missing, unreadable or broken driver logs why and
+   leaves plume on the system driver, so the game still starts.
+
+**Recommended driver:** [MrPurple666/purple-turnip](https://github.com/MrPurple666/purple-turnip)
+**T26**, which carries a Snapdragon 8 Gen 2 specific fix
+(`enable_tp_ubwc_flag_hint`) — the Thor's exact SoC. Drop the extracted
+`libvulkan_freedreno.so` into the driver directory and it is picked up at
+startup.
+
+Other sources worth knowing: [K11MCH1/AdrenoToolsDrivers](https://github.com/K11MCH1/AdrenoToolsDrivers/releases)
+and the [Turnip Tracker](https://skossan.github.io/turniptracker/).
 
 ## Meanwhile
 

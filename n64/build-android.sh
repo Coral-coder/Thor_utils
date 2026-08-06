@@ -14,7 +14,7 @@
 #            `static_assert(false && "Android unimplemented")`, so this stage
 #            needs our own implementation before it can compile.
 #
-# Usage:  n64/build-android.sh [stage]      (stage: plume | sdl2 | rt64 | all)
+# Usage:  n64/build-android.sh [stage]      (stage: plume | sdl2 | adrenotools | rt64 | all)
 set -euo pipefail
 
 STAGE="${1:-plume}"
@@ -82,11 +82,36 @@ configure_and_build() {
 
 # --- stages ---------------------------------------------------------------
 
+# Applies our patches to a fetched dependency. Idempotent: a patch that is
+# already in place is reported and skipped rather than failing the build.
+apply_patches() {
+    local name="$1" prefix="$2"
+    local dir="$WORK/$name"
+    shopt -s nullglob
+    for patch in "$ROOT/n64/patches/$prefix"-*.patch; do
+        echo "== applying $(basename "$patch") to $name"
+        if git -C "$dir" apply --check "$patch" 2>/dev/null; then
+            git -C "$dir" apply "$patch"
+        else
+            echo "   (already applied or does not match; continuing)"
+        fi
+    done
+    shopt -u nullglob
+}
+
 build_plume() {
-    # Pinned to a known-good commit; bump deliberately, not by drifting.
     fetch plume https://github.com/renderbag/plume.git "${PLUME_REF:-main}"
+    apply_patches plume plume
     configure_and_build plume "$WORK/plume" \
         -DPLUME_BUILD_EXAMPLES=OFF
+}
+
+# libadrenotools is what lets a Mesa Turnip build replace Qualcomm's Vulkan
+# driver for this process alone, without root. It is the main lever available
+# for making a desktop-shaped Vulkan renderer behave on Adreno.
+build_adrenotools() {
+    fetch adrenotools https://github.com/bylaws/libadrenotools.git "${ADRENOTOOLS_REF:-master}"
+    configure_and_build adrenotools "$WORK/adrenotools"
 }
 
 # RT64 needs SDL2. On desktop it comes from the system; on Android it has to be
@@ -110,27 +135,18 @@ build_sdl2() {
 build_rt64() {
     build_sdl2
     fetch rt64 https://github.com/rt64/rt64.git "${RT64_REF:-main}"
-    # RT64's Android window path is unimplemented upstream. Apply ours before
-    # configuring, so the failure mode is a clear patch error rather than a
-    # confusing static_assert deep in the build.
-    if [[ -d "$ROOT/n64/patches" ]]; then
-        for patch in "$ROOT/n64/patches"/rt64-*.patch; do
-            [[ -e "$patch" ]] || continue
-            echo "== applying $(basename "$patch")"
-            git -C "$WORK/rt64" apply --check "$patch" 2>/dev/null \
-                && git -C "$WORK/rt64" apply "$patch" \
-                || echo "   (already applied or does not match; continuing)"
-        done
-    fi
+    # RT64's Android window path is unimplemented upstream; ours goes in here.
+    apply_patches rt64 rt64
     configure_and_build rt64 "$WORK/rt64" \
         -DSDL2_DIR="$WORK/sdl2-install/lib/cmake/SDL2" \
         -DCMAKE_PREFIX_PATH="$WORK/sdl2-install"
 }
 
 case "$STAGE" in
-    plume) build_plume ;;
-    sdl2)  build_sdl2 ;;
-    rt64)  build_plume; build_rt64 ;;
-    all)   build_plume; build_rt64 ;;
-    *) echo "unknown stage: $STAGE (expected plume | sdl2 | rt64 | all)" >&2; exit 2 ;;
+    plume)       build_plume ;;
+    sdl2)        build_sdl2 ;;
+    adrenotools) build_adrenotools ;;
+    rt64)        build_plume; build_rt64 ;;
+    all)         build_plume; build_adrenotools; build_rt64 ;;
+    *) echo "unknown stage: $STAGE (expected plume | sdl2 | adrenotools | rt64 | all)" >&2; exit 2 ;;
 esac

@@ -1,0 +1,70 @@
+diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
+index f1dd503..e709060 100644
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -28,6 +28,17 @@
+ // - Fix resource pools.
+ 
+ namespace plume {
++    // Custom Vulkan loader hook. Null means "use the system driver".
++    static PFN_vkGetInstanceProcAddr g_customVulkanLoader = nullptr;
++
++    void setCustomVulkanLoader(PFN_vkGetInstanceProcAddr loader) {
++        g_customVulkanLoader = loader;
++    }
++
++    PFN_vkGetInstanceProcAddr getCustomVulkanLoader() {
++        return g_customVulkanLoader;
++    }
++
+     // Backend constants.
+ 
+     // Required buffer alignment for acceleration structures.
+@@ -4464,10 +4475,22 @@ namespace plume {
+ #else
+     VulkanInterface::VulkanInterface() {
+ #endif
+-        VkResult res = volkInitialize();
+-        if (res != VK_SUCCESS) {
+-            fprintf(stderr, "volkInitialize failed with error code 0x%X.\n", res);
+-            return;
++        // A custom loader, when one has been installed, replaces the system
++        // Vulkan driver entirely. On Android this is how a Mesa Turnip build is
++        // used in place of Qualcomm's blob: the caller loads the driver (via
++        // libadrenotools) and hands us its vkGetInstanceProcAddr, and every
++        // Vulkan entry point volk resolves from then on comes from that driver.
++        VkResult res = VK_SUCCESS;
++        const PFN_vkGetInstanceProcAddr customLoader = getCustomVulkanLoader();
++        if (customLoader != nullptr) {
++            volkInitializeCustom(customLoader);
++        }
++        else {
++            res = volkInitialize();
++            if (res != VK_SUCCESS) {
++                fprintf(stderr, "volkInitialize failed with error code 0x%X.\n", res);
++                return;
++            }
+         }
+ 
+         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+diff --git a/plume_vulkan.h b/plume_vulkan.h
+index 0a1edbe..8c75401 100644
+--- a/plume_vulkan.h
++++ b/plume_vulkan.h
+@@ -42,6 +42,16 @@
+ #endif
+ 
+ namespace plume {
++    // Installs a Vulkan loader to use instead of the system one. Must be called
++    // before constructing a VulkanInterface. Passing nullptr restores the
++    // system driver.
++    //
++    // This exists so a platform can supply its own driver without plume needing
++    // to know how it was obtained — on Android that means a Mesa Turnip build
++    // loaded through libadrenotools, which keeps that dependency out of here.
++    void setCustomVulkanLoader(PFN_vkGetInstanceProcAddr loader);
++    PFN_vkGetInstanceProcAddr getCustomVulkanLoader();
++
+     struct VulkanCommandQueue;
+     struct VulkanDevice;
+     struct VulkanInterface;
