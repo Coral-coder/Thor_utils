@@ -1,0 +1,65 @@
+name: N64 Android port
+
+# Tracks progress toward running N64Recomp-based native ports on the AYN Thor.
+#
+# Kept separate from the app build on purpose: this is exploratory work against
+# fast-moving upstream repositories, and it must never be able to block the
+# Thor Utils APK from shipping.
+
+on:
+  push:
+    paths:
+      - "n64/**"
+      - ".github/workflows/n64-android.yml"
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Which stage to build"
+        required: false
+        default: "plume"
+        type: choice
+        options: [plume, rt64, all]
+
+jobs:
+  graphics-stack:
+    name: Build graphics stack for arm64
+    runs-on: ubuntu-latest
+    # A stage that does not compile yet is the expected state during a port, so
+    # a red cross here is information rather than breakage.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+
+      - name: Show toolchain
+        run: |
+          echo "NDK: ${ANDROID_NDK_LATEST_HOME:-unset}"
+          cmake --version
+          ninja --version
+
+      - name: Build stage
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: |
+          chmod +x n64/build-android.sh
+          n64/build-android.sh "${{ inputs.stage || 'plume' }}"
+
+      - name: Collect libraries
+        if: always()
+        run: |
+          mkdir -p n64-artifacts
+          find n64/work -name '*.a' -o -name '*.so' 2>/dev/null \
+            | xargs -r -I{} cp {} n64-artifacts/ || true
+          ls -la n64-artifacts || true
+
+      - name: Upload libraries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: n64-android-libs
+          path: n64-artifacts/
+          if-no-files-found: ignore

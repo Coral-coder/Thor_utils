@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+#
+# Builds the N64 recompilation graphics stack for Android arm64.
+#
+# This is staged deliberately. Each stage is a checkpoint that either compiles
+# or does not, so progress toward a playable Android build is measurable rather
+# than a single all-or-nothing attempt:
+#
+#   plume  - the render hardware interface, including the Vulkan backend.
+#            Upstream already implements the Android path (ANativeWindow ->
+#            vkCreateAndroidSurfaceKHR), so this stage should pass with no
+#            patching. It is the foundation everything else sits on.
+#   rt64   - the N64 graphics renderer. Its window layer is an explicit
+#            `static_assert(false && "Android unimplemented")`, so this stage
+#            needs our own implementation before it can compile.
+#
+# Usage:  n64/build-android.sh [stage]      (stage: plume | rt64 | all)
+set -euo pipefail
+
+STAGE="${1:-plume}"
+ABI="${ANDROID_ABI:-arm64-v8a}"
+API="${ANDROID_API:-26}"
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WORK="${N64_WORK_DIR:-$ROOT/n64/work}"
+mkdir -p "$WORK"
+
+# --- locate the NDK -------------------------------------------------------
+
+NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-}}}"
+if [[ -z "$NDK" || ! -d "$NDK" ]]; then
+    echo "error: no Android NDK found." >&2
+    echo "Set ANDROID_NDK_HOME, or install one with:" >&2
+    echo "  sdkmanager 'ndk;26.3.11579264'" >&2
+    exit 1
+fi
+TOOLCHAIN="$NDK/build/cmake/android.toolchain.cmake"
+[[ -f "$TOOLCHAIN" ]] || { echo "error: toolchain missing at $TOOLCHAIN" >&2; exit 1; }
+echo "Using NDK: $NDK"
+echo "Target:    $ABI / android-$API"
+
+# --- helpers --------------------------------------------------------------
+
+# Clones at a pinned commit so a build that worked yesterday still works today.
+# Upstream moves fast and an unpinned clone makes failures impossible to
+# attribute between our changes and theirs.
+fetch() {
+    local name="$1" url="$2" ref="$3" dir="$WORK/$name"
+    if [[ -d "$dir/.git" ]]; then
+        echo "== $name already present"
+    else
+        echo "== cloning $name"
+        git clone --recurse-submodules "$url" "$dir"
+    fi
+    if [[ -n "$ref" ]]; then
+        git -C "$dir" fetch --depth 1 origin "$ref" 2>/dev/null || true
+        git -C "$dir" checkout --quiet "$ref"
+        git -C "$dir" submodule update --init --recursive --depth 1
+    fi
+}
+
+configure_and_build() {
+    local name="$1" src="$2"; shift 2
+    local build="$WORK/build-$name-$ABI"
+    echo "== configuring $name"
+    cmake -S "$src" -B "$build" -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+        -DANDROID_ABI="$ABI" \
+        -DANDROID_PLATFORM="android-$API" \
+        -DCMAKE_BUILD_TYPE=Release \
+        "$@"
+    echo "== building $name"
+    cmake --build "$build" --parallel "$(nproc)"
+    echo "== $name OK"
+    find "$build" -name '*.a' -o -name '*.so' | head -20
+}
+
+# --- stages ---------------------------------------------------------------
+
+build_plume() {
+    # Pinned to a known-good commit; bump deliberately, not by drifting.
+    fetch plume https://github.com/renderbag/plume.git "${PLUME_REF:-main}"
+    configure_and_build plume "$WORK/plume" \
+        -DPLUME_BUILD_EXAMPLES=OFF
+}
+
+build_rt64() {
+    fetch rt64 https://github.com/rt64/rt64.git "${RT64_REF:-main}"
+    # RT64's Android window path is unimplemented upstream. Apply ours before
+    # configuring, so the failure mode is a clear patch error rather than a
+    # confusing static_assert deep in the build.
+    if [[ -d "$ROOT/n64/patches" ]]; then
+        for patch in "$ROOT/n64/patches"/rt64-*.patch; do
+            [[ -e "$patch" ]] || continue
+            echo "== applying $(basename "$patch")"
+            git -C "$WORK/rt64" apply --check "$patch" 2>/dev/null \
+                && git -C "$WORK/rt64" apply "$patch" \
+                || echo "   (already applied or does not match; continuing)"
+        done
+    fi
+    configure_and_build rt64 "$WORK/rt64"
+}
+
+case "$STAGE" in
+    plume) build_plume ;;
+    rt64)  build_plume; build_rt64 ;;
+    all)   build_plume; build_rt64 ;;
+    *) echo "unknown stage: $STAGE (expected plume | rt64 | all)" >&2; exit 2 ;;
+esac
