@@ -37,11 +37,14 @@ jobs:
 
       - name: Upload test report
         if: always()
+        # Best-effort: a full artifact quota must not mask the test result.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: core-test-report
           path: core/build/reports/tests/test
           if-no-files-found: ignore
+          retention-days: 7
 
   android:
     name: Android APK
@@ -86,11 +89,14 @@ jobs:
           ls -la dist
 
       - name: Upload APKs
+        # Best-effort: the rolling release below is the real download.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: thor-utils-apks
           path: dist/*.apk
           if-no-files-found: error
+          retention-days: 7
 
       # Every push to the default branch refreshes a single rolling release, so
       # there is always one obvious "latest build" link to install from.
