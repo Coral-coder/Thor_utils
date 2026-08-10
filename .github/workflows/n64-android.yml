@@ -58,8 +58,11 @@ jobs:
 
       - name: Upload libraries
         if: always()
+        # Best-effort: a full artifact quota must not mask the build result.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: n64-android-libs
           path: n64-artifacts/
           if-no-files-found: ignore
+          retention-days: 7
