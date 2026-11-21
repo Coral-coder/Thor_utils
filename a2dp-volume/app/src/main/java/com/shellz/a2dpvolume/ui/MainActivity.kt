@@ -115,11 +115,11 @@ class MainActivity : AppCompatActivity() {
      */
     private fun takeOverSpeaker() {
         when (val result = SpeakerTakeover.takeOver(this)) {
-            is SpeakerTakeover.Result.PickerOpened ->
+            is SpeakerTakeover.Outcome.PickerOpened ->
                 Toast.makeText(this, R.string.takeover_opened, Toast.LENGTH_LONG).show()
-            is SpeakerTakeover.Result.NotPairedYet ->
+            is SpeakerTakeover.Outcome.NotPairedYet ->
                 Toast.makeText(this, R.string.takeover_not_paired, Toast.LENGTH_LONG).show()
-            is SpeakerTakeover.Result.Failed ->
+            is SpeakerTakeover.Outcome.Failed ->
                 Toast.makeText(
                     this,
                     getString(R.string.takeover_failed, result.reason),

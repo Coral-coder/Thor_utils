@@ -52,10 +52,27 @@ jobs:
           build-root-directory: a2dp-volume
 
       - name: Assemble debug
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        # Tee and grep so a Kotlin error is visible in the log tail. Without
+        # this the compiler's `e:` lines sit thousands of lines above a Gradle
+        # stack trace and are effectively unreadable from the API.
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --console=plain 2>&1 | tee build.log || {
+            echo "::group::Kotlin and resource errors"
+            grep -E "^e: |^w: .*error|error:" build.log || echo "(no compiler error lines found)"
+            echo "::endgroup::"
+            exit 1
+          }
 
       - name: Assemble release
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon --console=plain 2>&1 | tee release.log || {
+            echo "::group::Kotlin and resource errors"
+            grep -E "^e: |error:" release.log || echo "(no compiler error lines found)"
+            echo "::endgroup::"
+            exit 1
+          }
 
       - name: Lint
         continue-on-error: true

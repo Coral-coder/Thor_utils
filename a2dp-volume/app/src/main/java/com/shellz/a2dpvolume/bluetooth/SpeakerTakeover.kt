@@ -34,9 +34,9 @@ object SpeakerTakeover {
         val isConnected: Boolean,
     )
 
-    sealed interface Result {
+    sealed interface Outcome {
         /** The picker is open; the user taps the speaker to finish the takeover. */
-        data object PickerOpened : Result
+        object PickerOpened : Outcome
 
         /**
          * Nothing is paired to take over, so Bluetooth settings was opened instead.
@@ -45,10 +45,10 @@ object SpeakerTakeover {
          * pairing a new one needs it in pairing mode. Worth saying plainly rather
          * than showing an empty picker and letting the user wonder.
          */
-        data object NotPairedYet : Result
+        object NotPairedYet : Outcome
 
         /** Nothing could be done, with a reason worth showing. */
-        data class Failed(val reason: String) : Result
+        data class Failed(val reason: String) : Outcome
     }
 
     /**
@@ -82,7 +82,7 @@ object SpeakerTakeover {
 
     /** Paired audio sinks, read straight from the adapter. */
     @SuppressLint("MissingPermission")
-    fun pairedSinks(context: Context): List<PairedSink> {
+    fun pairedSinksFor(context: Context): List<PairedSink> {
         val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
         val bonded = runCatching { adapter?.bondedDevices }.getOrNull()
         return pairedSinks(bonded, null)
@@ -96,33 +96,33 @@ object SpeakerTakeover {
     /**
      * Opens the system audio-output picker so the speaker can be claimed.
      *
-     * Never throws: a failure to open comes back as [Result.Failed] with
+     * Never throws: a failure to open comes back as [Outcome.Failed] with
      * something worth showing the user.
      */
-    fun takeOver(context: Context): Result {
+    fun takeOver(context: Context): Outcome {
         // With no bond there is nothing for the output panel to offer, and the
         // speaker genuinely does need putting into pairing mode first. Send the
         // user to Bluetooth settings and say so, rather than opening a picker
         // that cannot contain what they are looking for.
-        if (pairedSinks(context).isEmpty()) {
+        if (pairedSinksFor(context).isEmpty()) {
             return if (open(context, Intent(Settings.ACTION_BLUETOOTH_SETTINGS))) {
-                Result.NotPairedYet
+                Outcome.NotPairedYet
             } else {
-                Result.Failed("Could not open Bluetooth settings on this device.")
+                Outcome.Failed("Could not open Bluetooth settings on this device.")
             }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             open(context, Intent(Settings.Panel.ACTION_MEDIA_OUTPUT))
         ) {
-            return Result.PickerOpened
+            return Outcome.PickerOpened
         }
         // Before Android 10 there is no output panel, and some builds refuse it;
         // Bluetooth settings connects a paired device just as well.
         if (open(context, Intent(Settings.ACTION_BLUETOOTH_SETTINGS))) {
-            return Result.PickerOpened
+            return Outcome.PickerOpened
         }
-        return Result.Failed("Could not open Android's audio output picker on this device.")
+        return Outcome.Failed("Could not open Android's audio output picker on this device.")
     }
 
     private fun open(context: Context, intent: Intent): Boolean {
