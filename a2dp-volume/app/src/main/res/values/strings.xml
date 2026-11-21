@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">A2DP Volume</string>
+    <string name="label_speaker">Bluetooth speaker</string>
+    <string name="label_volume">Volume</string>
+    <string name="no_speaker">No speaker connected</string>
+    <string name="volume_fmt">%1$d / %2$d</string>
+
+    <string name="status_idle">Not running. Tap Start.</string>
+    <string name="status_searching">Looking for a connected A2DP speaker…</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_disconnected">Disconnected. Waiting for it to come back…</string>
+    <string name="status_bt_off">Bluetooth is off</string>
+    <string name="status_no_permission">Bluetooth permission not granted</string>
+    <string name="route_bt">Media audio is routed to this speaker</string>
+    <string name="route_pending">Waiting for media audio to route to the speaker</string>
+
+    <string name="keep_alive">Keep speaker awake</string>
+    <string name="keep_alive_hint">Streams inaudible audio so the speaker doesn\'t auto-standby and drop the link.</string>
+
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="vol_up">Vol +</string>
+    <string name="vol_down">Vol −</string>
+
+    <string name="channel_name">Speaker session</string>
+    <string name="notif_connected">Connected to %1$s</string>
+    <string name="notif_waiting">Waiting for %1$s</string>
+    <string name="notif_volume">Volume %1$d / %2$d</string>
+
+    <string name="perm_title">Bluetooth permission needed</string>
+    <string name="perm_message">This app needs the Nearby devices permission to see which Bluetooth speaker is connected. You can grant it in App info → Permissions.</string>
+    <string name="open_settings">Open settings</string>
+</resources>

@@ -1,0 +1,98 @@
+name: A2DP Volume APK
+
+# Builds the A2DP Volume app, which is a standalone project vendored under
+# a2dp-volume/ rather than a module of Thor Utils.
+#
+# It is kept separate on purpose. It has its own Gradle wrapper, AGP and Kotlin
+# versions (8.5.2 / 1.9.24 against Thor Utils' 8.7.3 / 2.0.21), and folding it
+# into the main build would force one of them to move. A separate workflow also
+# means a break here can never stop the Thor Utils APK from shipping.
+
+on:
+  push:
+    paths:
+      - "a2dp-volume/**"
+      - ".github/workflows/a2dp-volume.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: a2dp-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: a2dp-volume
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: a2dp-volume
+
+      - name: Assemble debug
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Assemble release
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Lint
+        continue-on-error: true
+        run: ./gradlew lintDebug --no-daemon
+
+      - name: Name the artifacts
+        run: |
+          mkdir -p dist
+          version="$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)"
+          short_sha="$(git rev-parse --short HEAD)"
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             "dist/A2dpVolume-${version}-${short_sha}-debug.apk"
+          cp app/build/outputs/apk/release/app-release.apk \
+             "dist/A2dpVolume-${version}-${short_sha}.apk"
+          ls -la dist
+
+      - name: Upload APKs
+        # Best-effort: the rolling release below is the real download.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: a2dp-volume-apks
+          path: a2dp-volume/dist/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      # Its own rolling tag, separate from Thor Utils' `latest`. Two workflows
+      # publishing to one tag would overwrite each other's assets.
+      - name: Publish rolling build
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: a2dp-latest
+          name: A2DP Volume — latest build
+          body: |
+            Automatic build of the A2DP Volume app from `${{ github.sha }}`.
+
+            Install `A2dpVolume-*.apk` (the release build). The `-debug` APK
+            installs alongside it for testing.
+
+            Pair and connect your speaker in Android's Bluetooth settings
+            first, then open the app and tap Start.
+          files: a2dp-volume/dist/*.apk
+          prerelease: true
+          make_latest: false
