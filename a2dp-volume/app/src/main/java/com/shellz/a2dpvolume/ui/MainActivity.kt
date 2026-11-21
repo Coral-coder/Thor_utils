@@ -18,6 +18,7 @@ import com.shellz.a2dpvolume.LinkState
 import com.shellz.a2dpvolume.R
 import com.shellz.a2dpvolume.SessionState
 import com.shellz.a2dpvolume.bluetooth.BluetoothPermissions
+import com.shellz.a2dpvolume.bluetooth.SpeakerTakeover
 import com.shellz.a2dpvolume.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 
@@ -44,6 +45,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.startButton.setOnClickListener { requestPermissionsThenStart() }
         binding.stopButton.setOnClickListener { viewModel.stop() }
+        binding.takeoverButton.setOnClickListener { takeOverSpeaker() }
         binding.keepAliveSwitch.setOnCheckedChangeListener { button, checked ->
             if (button.isPressed) viewModel.setKeepAlive(checked)
         }
@@ -101,6 +103,27 @@ class MainActivity : AppCompatActivity() {
     private fun requestPermissionsThenStart() {
         val missing = BluetoothPermissions.missing(this)
         if (missing.isEmpty()) viewModel.start() else permissionLauncher.launch(missing.toTypedArray())
+    }
+
+    /**
+     * Claims the soundbar from whatever device currently holds it.
+     *
+     * Nothing here reaches across to the other device — it cannot. The soundbar
+     * accepts one Bluetooth audio connection at a time, so connecting this one
+     * is what drops the other. Once it lands, Start gives us volume control the
+     * normal way, because we are then the active source.
+     */
+    private fun takeOverSpeaker() {
+        when (val result = SpeakerTakeover.takeOver(this)) {
+            is SpeakerTakeover.Result.PickerOpened ->
+                Toast.makeText(this, R.string.takeover_opened, Toast.LENGTH_LONG).show()
+            is SpeakerTakeover.Result.Failed ->
+                Toast.makeText(
+                    this,
+                    getString(R.string.takeover_failed, result.reason),
+                    Toast.LENGTH_LONG,
+                ).show()
+        }
     }
 
     private fun showPermissionRationale() {

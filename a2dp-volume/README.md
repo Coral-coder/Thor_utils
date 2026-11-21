@@ -20,6 +20,29 @@ Android does not let a normal app intercept or re-route another app's Bluetooth 
 
 If you truly need to capture audio from other apps, that is `AudioPlaybackCaptureConfiguration` with MediaProjection (Android 10+ only, needs a screen-capture consent prompt, and apps can opt out). It isn't included because minSdk is 21 and it would double-play the audio.
 
+## Taking the speaker from another device
+
+A soundbar such as the Vizio V20 holds **one** Bluetooth audio connection at a
+time. So there is no need to disconnect the device that currently has it, and
+no way to: an app cannot reach across and command someone else's phone or the
+bar itself. Connecting *this* device is what drops the other one — takeover is
+a side effect of connecting.
+
+**Take the speaker** opens Android's audio-output panel, where tapping the bar
+connects it here and boots whatever had it. Then **Start**, and volume control
+works normally, because this device is now the active source.
+
+Why the panel rather than connecting directly: `BluetoothA2dp.connect()` is
+hidden behind the signature-level `BLUETOOTH_PRIVILEGED` permission. Reaching
+it by reflection throws on current Android, so wiring it up would be a hack
+that silently never works. The output panel is public API, needs no privilege,
+and costs one extra tap.
+
+This is also why controlling the bar's volume *while another device streams to
+it* is not possible over Bluetooth. AVRCP volume commands come from the active
+A2DP source; a second, non-streaming device's commands are firmware-dependent
+and usually ignored. You either hold the link or you don't.
+
 ## Project layout
 
 ```

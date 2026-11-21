@@ -118,6 +118,16 @@ class A2dpSpeakerTracker(
         adapter?.getProfileProxy(context, profileListener, BluetoothProfile.A2DP)
     }
 
+    /** Paired audio sinks, connected one first, for the takeover UI. */
+    @SuppressLint("MissingPermission")
+    fun pairedSinks(): List<SpeakerTakeover.PairedSink> {
+        if (!BluetoothPermissions.hasConnect(context)) return emptyList()
+        return SpeakerTakeover.pairedSinks(
+            runCatching { adapter?.bondedDevices }.getOrNull(),
+            a2dp,
+        )
+    }
+
     /** Re-evaluate which sink is connected and notify on any change. */
     @SuppressLint("MissingPermission") // checked via BluetoothPermissions.hasConnect
     fun refresh() {
