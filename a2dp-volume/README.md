@@ -28,9 +28,43 @@ no way to: an app cannot reach across and command someone else's phone or the
 bar itself. Connecting *this* device is what drops the other one — takeover is
 a side effect of connecting.
 
-**Take the speaker** opens Android's audio-output panel, where tapping the bar
-connects it here and boots whatever had it. Then **Start**, and volume control
-works normally, because this device is now the active source.
+**Take the speaker** tries two mechanisms, in order:
+
+1. **Raise the link directly.** The app opens an outbound RFCOMM socket to the
+   paired bar. That is public API needing only `BLUETOOTH_CONNECT`, and the
+   baseband (ACL) link it brings up is a real connection we initiated. Android's
+   stack generally carries A2DP across an ACL link to a bonded device whose
+   profile policy allows it — the same path "tap the device in Bluetooth
+   settings" takes. The socket itself is expected to be refused, because a
+   speaker does not serve Serial Port; the link is the point, not the channel.
+   Success is therefore judged by watching for the A2DP connection broadcast,
+   never by whether the socket opened.
+2. **Android's audio-output panel**, if the link did not come up within eight
+   seconds. Tapping the bar there connects it here and boots whatever had it.
+
+Step 1 is only attempted when the target is unambiguous — a single paired sink,
+or one whose name matches the hint. With several paired sinks and no match it
+goes straight to the panel, because connecting the wrong device is worse than a
+tap.
+
+Then **Start**, and volume control works normally, because this device is now
+the active source.
+
+### Why not scan for the bar first?
+
+A Bluetooth scan does not help, for two independent reasons.
+
+A speaker that is connected to another device has normally stopped inquiry-scan
+responses, so discovery will not see it at all. And even when discovery does see
+a device, it hands back a `BluetoothDevice` — exactly what `getRemoteDevice(mac)`
+or the bonded-device list already gives for free. Finding the speaker was never
+the obstacle; *initiating an A2DP connection* is, and that is gated on a
+permission no third-party app can hold. Scanning changes nothing about which
+methods are callable.
+
+Scanning is useful for one thing only: pairing a bar that is not yet bonded, and
+that needs it in pairing mode anyway, which is what Bluetooth settings already
+does well.
 
 ### Does the speaker need to be in pairing mode?
 

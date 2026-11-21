@@ -112,19 +112,34 @@ class MainActivity : AppCompatActivity() {
      * accepts one Bluetooth audio connection at a time, so connecting this one
      * is what drops the other. Once it lands, Start gives us volume control the
      * normal way, because we are then the active source.
+     *
+     * The attempt can take several seconds while a link is raised, so the button
+     * reports that it is working rather than appearing to have done nothing.
      */
     private fun takeOverSpeaker() {
-        when (val result = SpeakerTakeover.takeOver(this)) {
-            is SpeakerTakeover.Outcome.PickerOpened ->
-                Toast.makeText(this, R.string.takeover_opened, Toast.LENGTH_LONG).show()
-            is SpeakerTakeover.Outcome.NotPairedYet ->
-                Toast.makeText(this, R.string.takeover_not_paired, Toast.LENGTH_LONG).show()
-            is SpeakerTakeover.Outcome.Failed ->
-                Toast.makeText(
-                    this,
-                    getString(R.string.takeover_failed, result.reason),
-                    Toast.LENGTH_LONG,
-                ).show()
+        val missing = BluetoothPermissions.missing(this)
+        if (!BluetoothPermissions.hasConnect(this)) {
+            permissionLauncher.launch(missing.toTypedArray())
+            return
+        }
+        lifecycleScope.launch {
+            binding.takeoverButton.isEnabled = false
+            binding.takeoverButton.setText(R.string.takeover_working)
+            val result = SpeakerTakeover.takeOver(this@MainActivity)
+            binding.takeoverButton.setText(R.string.takeover)
+            binding.takeoverButton.isEnabled = true
+
+            val message = when (result) {
+                is SpeakerTakeover.Outcome.Connected ->
+                    getString(R.string.takeover_connected, result.name)
+                is SpeakerTakeover.Outcome.PickerOpened -> getString(R.string.takeover_opened)
+                is SpeakerTakeover.Outcome.NotPairedYet -> getString(R.string.takeover_not_paired)
+                is SpeakerTakeover.Outcome.Failed ->
+                    getString(R.string.takeover_failed, result.reason)
+            }
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+            // We may now be the active source, which changes the volume stream.
+            viewModel.refreshVolume()
         }
     }
 
