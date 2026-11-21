@@ -32,6 +32,21 @@ a side effect of connecting.
 connects it here and boots whatever had it. Then **Start**, and volume control
 works normally, because this device is now the active source.
 
+### Does the speaker need to be in pairing mode?
+
+Only once, and only if it is not already paired with *this* device.
+
+Pairing and connecting are different operations. Pairing exchanges keys and does
+need the bar in pairing mode — on a V20, hold its Bluetooth button for three
+seconds. Connecting re-links two devices that already hold each other's keys and
+needs nothing from the bar at all; it does not even need to be idle.
+
+So if you previously removed the pairing here to let another device connect, you
+have to pair once more. After that, taking the speaker is just the button, no
+matter what is currently streaming to it. The app checks which case you are in
+and sends you to Bluetooth settings with an explanation rather than opening a
+picker that cannot list an unpaired speaker.
+
 Why the panel rather than connecting directly: `BluetoothA2dp.connect()` is
 hidden behind the signature-level `BLUETOOTH_PRIVILEGED` permission. Reaching
 it by reflection throws on current Android, so wiring it up would be a hack

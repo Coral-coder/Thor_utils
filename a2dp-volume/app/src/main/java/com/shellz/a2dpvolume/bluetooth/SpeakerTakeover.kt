@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -36,6 +37,15 @@ object SpeakerTakeover {
     sealed interface Result {
         /** The picker is open; the user taps the speaker to finish the takeover. */
         data object PickerOpened : Result
+
+        /**
+         * Nothing is paired to take over, so Bluetooth settings was opened instead.
+         *
+         * Connecting an already-paired speaker needs nothing from the speaker, but
+         * pairing a new one needs it in pairing mode. Worth saying plainly rather
+         * than showing an empty picker and letting the user wonder.
+         */
+        data object NotPairedYet : Result
 
         /** Nothing could be done, with a reason worth showing. */
         data class Failed(val reason: String) : Result
@@ -70,6 +80,14 @@ object SpeakerTakeover {
             .sortedByDescending { it.isConnected }
     }
 
+    /** Paired audio sinks, read straight from the adapter. */
+    @SuppressLint("MissingPermission")
+    fun pairedSinks(context: Context): List<PairedSink> {
+        val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+        val bonded = runCatching { adapter?.bondedDevices }.getOrNull()
+        return pairedSinks(bonded, null)
+    }
+
     @SuppressLint("MissingPermission")
     private fun isAudioSink(device: BluetoothDevice): Boolean =
         runCatching { device.bluetoothClass?.majorDeviceClass }.getOrNull() ==
@@ -82,21 +100,33 @@ object SpeakerTakeover {
      * something worth showing the user.
      */
     fun takeOver(context: Context): Result {
-        val intents = buildList {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                add(Intent(Settings.Panel.ACTION_MEDIA_OUTPUT))
+        // With no bond there is nothing for the output panel to offer, and the
+        // speaker genuinely does need putting into pairing mode first. Send the
+        // user to Bluetooth settings and say so, rather than opening a picker
+        // that cannot contain what they are looking for.
+        if (pairedSinks(context).isEmpty()) {
+            return if (open(context, Intent(Settings.ACTION_BLUETOOTH_SETTINGS))) {
+                Result.NotPairedYet
+            } else {
+                Result.Failed("Could not open Bluetooth settings on this device.")
             }
-            // Before Android 10 there is no output panel, so the Bluetooth
-            // settings screen is the closest equivalent.
-            add(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
         }
 
-        intents.forEach { intent ->
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (runCatching { context.startActivity(intent) }.isSuccess) {
-                return Result.PickerOpened
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            open(context, Intent(Settings.Panel.ACTION_MEDIA_OUTPUT))
+        ) {
+            return Result.PickerOpened
+        }
+        // Before Android 10 there is no output panel, and some builds refuse it;
+        // Bluetooth settings connects a paired device just as well.
+        if (open(context, Intent(Settings.ACTION_BLUETOOTH_SETTINGS))) {
+            return Result.PickerOpened
         }
         return Result.Failed("Could not open Android's audio output picker on this device.")
+    }
+
+    private fun open(context: Context, intent: Intent): Boolean {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching { context.startActivity(intent) }.isSuccess
     }
 }

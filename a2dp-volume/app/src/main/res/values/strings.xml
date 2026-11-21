@@ -18,9 +18,10 @@
     <string name="keep_alive_hint">Streams inaudible audio so the speaker doesn\'t auto-standby and drop the link.</string>
 
     <string name="takeover">Take the speaker</string>
-    <string name="takeover_hint">The soundbar holds one Bluetooth connection at a time, so connecting this device drops whatever has it now. Pick the speaker in the panel that opens.</string>
+    <string name="takeover_hint">The soundbar holds one Bluetooth connection at a time, so connecting this device drops whatever has it now. Pairing mode is only needed the first time.</string>
 
     <string name="takeover_opened">Pick your soundbar in the list to take it over.</string>
+    <string name="takeover_not_paired">This speaker isn\'t paired here yet. Put the soundbar in pairing mode — hold its Bluetooth button for 3 seconds — then pair it. After that you can take it over any time without pairing mode.</string>
     <string name="takeover_failed">Could not open the output picker: %1$s</string>
 
     <string name="start">Start</string>
